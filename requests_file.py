@@ -17,9 +17,30 @@ try:
 except ImportError:
     from urlparse import parse_qs
 
+def split_paths(paths):
+    ret = {}
+    for key, value in paths.items():
+        if not value:
+            ret[key] = []
+            continue
+        # get drive from path
+        drive, path = os.path.splitdrive(value)
+        # get parts from path
+        if path:
+            parts = list(os.path.split(path))
+            while parts and not parts[0]:
+                del parts[0]
+        else:
+            parts = []
+        if drive:
+            parts.insert(0, drive)
+        ret[key] = parts
+    return ret
+
 class FileAdapter(BaseAdapter):
-    def __init__(self, set_content_length=True):
+    def __init__(self, set_content_length=True, netloc_paths = {'localhost': ''}):
         super(FileAdapter, self).__init__()
+        self.__netloc_path_parts = split_paths(netloc_paths)
         self._set_content_length = set_content_length
 
     def open_raw(self, path, query):
@@ -46,8 +67,8 @@ class FileAdapter(BaseAdapter):
         url_parts = urlparse(request.url)
 
         # Reject URLs with a hostname component
-        if url_parts.netloc and url_parts.netloc != "localhost":
-            raise ValueError("file: URLs with hostname components are not permitted")
+        if url_parts.netloc and not url_parts.netloc in self.__netloc_path_parts:
+            raise ValueError(url_parts.netloc + " not mounted")
 
         resp = Response()
         resp.request = request
@@ -63,7 +84,8 @@ class FileAdapter(BaseAdapter):
             # Strip out the leading empty parts created from the leading /'s
             while path_parts and not path_parts[0]:
                 path_parts.pop(0)
-
+            # Append parts
+            path_parts = self.__netloc_path_parts.get(url_parts.netloc, []) + path_parts
             # If os.sep is in any of the parts, someone fed us some shenanigans.
             # Treat is like a missing file.
             if any(os.sep in p for p in path_parts):
