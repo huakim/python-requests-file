@@ -94,7 +94,7 @@ class FileAdapter(BaseAdapter):
             while path_parts and not path_parts[0]:
                 path_parts.pop(0)
             # Append parts
-            path_parts = Path(str(self.__netloc_path_parts.get(url_parts.netloc, ''))).parts + path_parts
+            path_parts = list(Path(str(self.__netloc_path_parts.get(url_parts.netloc, ''))).parts) + path_parts
             # If os.sep is in any of the parts, someone fed us some shenanigans.
             # Treat is like a missing file.
             if any(os.sep in p for p in path_parts):
