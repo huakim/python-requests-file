@@ -52,6 +52,9 @@ class FileAdapter(BaseAdapter):
             raw.len = resp_stat.st_size
         return raw
 
+    def add_netloc(self, **kwargs):
+        self.__netloc_path_parts.update(split_paths(kwargs))
+
     def send(self, request, **kwargs):
         """Wraps a file, described in request, in a Response object.
 
