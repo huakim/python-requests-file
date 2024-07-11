@@ -38,7 +38,7 @@ def split_paths(paths):
     return ret
 
 class FileAdapter(BaseAdapter):
-    def __init__(self, set_content_length=True, netloc_paths = {'localhost': ''}):
+    def __init__(self, set_content_length=True, netloc_paths={'localhost': ''}):
         super(FileAdapter, self).__init__()
         self.__netloc_path_parts = split_paths(netloc_paths)
         self._set_content_length = set_content_length
