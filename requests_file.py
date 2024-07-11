@@ -7,6 +7,12 @@ import stat
 import locale
 import io
 
+
+try:
+    from pathlib import Path
+except ImportError:
+    from pathlib2 import Path
+
 try:
     from io import BytesIO
 except ImportError:
@@ -38,9 +44,9 @@ def split_paths(paths):
     return ret
 
 class FileAdapter(BaseAdapter):
-    def __init__(self, set_content_length=True, netloc_paths = {'localhost': ''}):
+    def __init__(self, set_content_length=True, netloc_paths=None):
         super(FileAdapter, self).__init__()
-        self.__netloc_path_parts = split_paths(netloc_paths)
+        self.__netloc_path_parts = netloc_paths or {'localhost': ''}
         self._set_content_length = set_content_length
 
     def open_raw(self, path, query):
@@ -53,7 +59,7 @@ class FileAdapter(BaseAdapter):
         return raw
 
     def add_netloc(self, **kwargs):
-        self.__netloc_path_parts.update(split_paths(kwargs))
+        self.__netloc_path_parts.update(kwargs)
 
     def send(self, request, **kwargs):
         """Wraps a file, described in request, in a Response object.
@@ -88,7 +94,7 @@ class FileAdapter(BaseAdapter):
             while path_parts and not path_parts[0]:
                 path_parts.pop(0)
             # Append parts
-            path_parts = self.__netloc_path_parts.get(url_parts.netloc, []) + path_parts
+            path_parts = Path(self.__netloc_path_parts.get(url_parts.netloc, '')).parts + path_parts
             # If os.sep is in any of the parts, someone fed us some shenanigans.
             # Treat is like a missing file.
             if any(os.sep in p for p in path_parts):
