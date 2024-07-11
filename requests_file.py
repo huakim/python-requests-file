@@ -58,6 +58,12 @@ class FileAdapter(BaseAdapter):
             raw.len = resp_stat.st_size
         return raw
 
+    def get_netloc_keys(self):
+        return self.__netloc_path_parts.keys()
+
+    def get_netloc(self, key):
+        return self.__netloc_path_parts.get(key, None)
+
     def add_netloc(self, **kwargs):
         self.__netloc_path_parts.update(kwargs)
 
