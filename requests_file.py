@@ -12,11 +12,24 @@ try:
 except ImportError:
     from StringIO import StringIO as BytesIO
 
+try:
+    from urllib.parse import parse_qs
+except ImportError:
+    from urlparse import parse_qs
 
 class FileAdapter(BaseAdapter):
     def __init__(self, set_content_length=True):
         super(FileAdapter, self).__init__()
         self._set_content_length = set_content_length
+
+    def open_raw(self, path, query):
+        """Open a file as raw stream"""
+        raw = io.open(path, 'rb')
+        # If it's a regular file, set the Content-Length
+        resp_stat = os.fstat(raw.fileno())
+        if stat.S_ISREG(resp_stat.st_mode):
+            raw.len = resp_stat.st_size
+        return raw
 
     def send(self, request, **kwargs):
         """Wraps a file, described in request, in a Response object.
@@ -86,7 +99,7 @@ class FileAdapter(BaseAdapter):
 
             # Use io.open since we need to add a release_conn method, and
             # methods can't be added to file objects in python 2.
-            resp.raw = io.open(path, "rb")
+            resp.raw = self.open_raw(path, parse_qs(url_parts.query))
             resp.raw.release_conn = resp.raw.close
         except IOError as e:
             if e.errno == errno.EACCES:
@@ -112,8 +125,8 @@ class FileAdapter(BaseAdapter):
 
             # If it's a regular file, set the Content-Length
             resp_stat = os.fstat(resp.raw.fileno())
-            if stat.S_ISREG(resp_stat.st_mode) and self._set_content_length:
-                resp.headers["Content-Length"] = resp_stat.st_size
+            if self._set_content_length and hasattr(resp.raw, 'len'):
+                resp.headers["Content-Length"] = resp.raw.len
 
         return resp
 
