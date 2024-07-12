@@ -1,67 +1,30 @@
 from requests.adapters import BaseAdapter
-from requests.compat import urlparse, unquote
 from requests import Response, codes
 import errno
 import os
 import stat
 import locale
-import io
+from pathlib import Path
+from io import BytesIO
+from urllib.parse import parse_qs
+import sys
 
-
-try:
-    from pathlib import Path
-except ImportError:
-    from pathlib2 import Path
-
-try:
-    from io import BytesIO
-except ImportError:
-    from StringIO import StringIO as BytesIO
-
-try:
-    from urllib.parse import parse_qs
-except ImportError:
-    from urlparse import parse_qs
-
-def split_path(value):
-    if not value:
-        return []
-        # get drive from path
-    drive, path = os.path.splitdrive(value)
-        # get parts from path
-    if path:
-        parts = list(os.path.split(path))
-        while parts and not parts[0]:
-            del parts[0]
-    else:
-        parts = []
-    if drive:
-        parts.insert(0, drive)
-    return parts
+from urllib.parse import urlparse, unquote
 
 class FileAdapter(BaseAdapter):
-    def __init__(self, set_content_length=True, netloc_paths=None):
+    def __init__(self, set_content_length=True, netloc_paths={'localhost': '/'}):
         super(FileAdapter, self).__init__()
-        self.__netloc_path_parts = netloc_paths or {'localhost': ''}
+        self.netlocs = dict(netloc_paths)
         self._set_content_length = set_content_length
 
     def open_raw(self, path, query):
         """Open a file as raw stream"""
-        raw = io.open(path, 'rb')
+        raw = Path(path).open('rb')
         # If it's a regular file, set the Content-Length
         resp_stat = os.fstat(raw.fileno())
         if stat.S_ISREG(resp_stat.st_mode):
             raw.len = resp_stat.st_size
         return raw
-
-    def get_netloc_keys(self):
-        return self.__netloc_path_parts.keys()
-
-    def get_netloc(self, key):
-        return self.__netloc_path_parts.get(key, None)
-
-    def add_netloc(self, **kwargs):
-        self.__netloc_path_parts.update(kwargs)
 
     def send(self, request, **kwargs):
         """Wraps a file, described in request, in a Response object.
@@ -77,59 +40,46 @@ class FileAdapter(BaseAdapter):
         # Parse the URL
         url_parts = urlparse(request.url)
 
-        # Reject URLs with a hostname component
-        if url_parts.netloc and not url_parts.netloc in self.__netloc_path_parts:
-            raise ValueError(url_parts.netloc + " not mounted")
-
+        path = ''
+        # get url netloc
+        netloc = url_parts.netloc
+        if netloc:
+            if not netloc in self.netlocs:
+                raise ValueError("Domain " + netloc + " not mounted")
+            else:
+                path = urlparse(Path(str(self.netlocs.get(netloc) or '')).absolute().as_uri()).path
         resp = Response()
         resp.request = request
 
-        # Open the file, translate certain errors into HTTP responses
-        # Use urllib's unquote to translate percent escapes into whatever
-        # they actually need to be
         try:
             # Split the path on / (the URL directory separator) and decode any
             # % escapes in the parts
-            path_parts = [unquote(p) for p in url_parts.path.split("/")]
-
-            # Strip out the leading empty parts created from the leading /'s
-            while path_parts and not path_parts[0]:
-                path_parts.pop(0)
-            # Append parts
-            path_parts = split_path(str(self.__netloc_path_parts.get(url_parts.netloc, ''))) + path_parts
+            path_parts = [unquote(p) for p in (path + url_parts.path).split("/")]
+            #
+            while path_parts:
+                if not path_parts[0]:
+                    path_parts.pop(0)
+                else:
+                    break
+            # drive paths can contain an '|' symbol
+            path = Path('/')
+            if path_parts:
+                path_drive = path_parts[0]
+                # if drive path contain '|' symbol, then replace it with ':'
+                if path_drive[-1] == '|':
+                    path_drive = path_drive[:-1] + ':'
+                # check if drive
+                if path_drive[-1] == ':':
+                    path_drive = Path(path_drive)
+                    if path_drive.drive:
+                        path = path_drive
+                        path_parts.pop(0)
             # If os.sep is in any of the parts, someone fed us some shenanigans.
             # Treat is like a missing file.
-            if any(os.sep in p for p in path_parts):
-                raise IOError(errno.ENOENT, os.strerror(errno.ENOENT))
-
-            # Look for a drive component. If one is present, store it separately
-            # so that a directory separator can correctly be added to the real
-            # path, and remove any empty path parts between the drive and the path.
-            # Assume that a part ending with : or | (legacy) is a drive.
-            if path_parts and (
-                path_parts[0].endswith("|") or path_parts[0].endswith(":")
-            ):
-                path_drive = path_parts.pop(0)
-                if path_drive.endswith("|"):
-                    path_drive = path_drive[:-1] + ":"
-
-                while path_parts and not path_parts[0]:
-                    path_parts.pop(0)
-            else:
-                path_drive = ""
-
-            # Try to put the path back together
-            # Join the drive back in, and stick os.sep in front of the path to
-            # make it absolute.
-            path = path_drive + os.sep + os.path.join(*path_parts)
-
-            # Check if the drive assumptions above were correct. If path_drive
-            # is set, and os.path.splitdrive does not return a drive, it wasn't
-            # really a drive. Put the path together again treating path_drive
-            # as a normal path component.
-            if path_drive and not os.path.splitdrive(path):
-                path = os.sep + os.path.join(path_drive, *path_parts)
-
+            for p in path_parts:
+                if os.sep in p:
+                    raise IOError(errno.ENOENT, os.strerror(errno.ENOENT))
+                path = path / Path(p)
             # Use io.open since we need to add a release_conn method, and
             # methods can't be added to file objects in python 2.
             resp.raw = self.open_raw(path, parse_qs(url_parts.query))
@@ -141,7 +91,6 @@ class FileAdapter(BaseAdapter):
                 resp.status_code = codes.not_found
             else:
                 resp.status_code = codes.bad_request
-
             # Wrap the error message in a file-like object
             # The error message will be localized, try to convert the string
             # representation of the exception into a byte stream
