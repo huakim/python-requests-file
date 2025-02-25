@@ -1,5 +1,6 @@
 from requests.adapters import BaseAdapter
 from requests.compat import urlparse, unquote
+from urllib.parse import parse_qs
 from requests import Response, codes
 import errno
 import os
@@ -48,7 +49,7 @@ def readExceptionObject(resp, e, status_code=codes.internal_server_error):
     return resp
 
 
-def readTextFile(resp):
+def readTextFile(resp, raw=None, length=None):
     """Wraps a file, described in request, in a Response object.
 
     :param resp: The Response` being "sent".
@@ -56,15 +57,22 @@ def readTextFile(resp):
     """
     # Use io.open since we need to add a release_conn method, and
     # methods can't be added to file objects in python 2.
-    resp.raw = io.open(resp.file_path, "rb")
+    if raw is None:
+        raw = io.open(resp.file_path, 'rb')
+
+    resp.raw = raw
     resp.raw.release_conn = resp.raw.close
 
     resp.status_code = codes.ok
 
     # If it's a regular file, set the Content-Length
-    resp_stat = os.fstat(resp.raw.fileno())
-    if stat.S_ISREG(resp_stat.st_mode) and resp._set_content_length:
-        resp.headers["Content-Length"] = resp_stat.st_size
+    if resp._set_content_length:
+        if length is None:
+            resp_stat = os.fstat(resp.raw.fileno())
+            if stat.S_ISREG(resp_stat.st_mode):
+                length = resp_stat.st_size
+        resp.headers["Content-Length"] = length
+
     return resp
 
 
@@ -107,6 +115,7 @@ class FileAdapter(BaseAdapter):
         resp = Response()
         resp.request = request
         resp.url = request.url
+        resp.query_params = parse_qs(url_parts.query)
         resp._set_content_length = self._set_content_length
 
         # Open the file, translate certain errors into HTTP responses
@@ -156,7 +165,7 @@ class FileAdapter(BaseAdapter):
 
             # Add file_path and url_netloc attributes for using with adapters
             resp.file_path = path
-            resp.url_netloc = url_netloc
+            resp.url_netloc = url_netloc or "localhost"
             resp.raw = None
 
             for func in self._handlers:
@@ -174,7 +183,7 @@ class FileAdapter(BaseAdapter):
                     resp.status_code = codes.method_not_allowed
                     raise ValueError("Invalid request method %s" % method)
                 # Reject URLs with a hostname component
-                if url_netloc and url_netloc != "localhost":
+                if url_netloc != "localhost":
                     resp.status_code = codes.forbidden
                     raise ValueError(
                         "file: URLs with hostname components are not permitted"
