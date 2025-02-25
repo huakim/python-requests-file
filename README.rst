@@ -30,6 +30,17 @@ unicode type and it may not detect what you actually want.
 EACCES is converted to a 403 status code, and ENOENT is converted to a
 404. All other IOError types are converted to a 400.
 
+Static Type Checking
+--------------------
+
+mypy errors out *Skipping analyzing "requests_file": module is installed, but
+missing library stubs or py.typed marker  [import-untyped]*. To resolve, run the
+following command to generate a requests_file.pyi in the current directory:
+
+.. code-block:: bash
+
+    stubgen -o . -m requests_file
+
 Contributing
 ------------
 
