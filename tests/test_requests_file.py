@@ -101,25 +101,28 @@ class FileRequestTestCase(unittest.TestCase):
         response.close()
 
     def test_fetch_post(self):
+        response = self._session.post("file://%s" % self._pathToURL(os.path.abspath(__file__)))
         # Make sure that non-GET methods are rejected
-        self.assertRaises(
-            ValueError,
-            self._session.post,
-            ("file://%s" % self._pathToURL(os.path.abspath(__file__))),
-        )
+        self.assertTrue(isinstance(response.error, ValueError))
+        self.assertEqual(response.status_code, requests.codes.method_not_allowed)
 
     def test_fetch_nonlocal(self):
         # Make sure that network locations are rejected
-        self.assertRaises(
-            ValueError,
-            self._session.get,
-            ("file://example.com%s" % self._pathToURL(os.path.abspath(__file__))),
-        )
-        self.assertRaises(
-            ValueError,
-            self._session.get,
-            ("file://localhost:8080%s" % self._pathToURL(os.path.abspath(__file__))),
-        )
+        responses = [
+            self._session.get(i % self._pathToURL(os.path.abspath(__file__)))
+            for i in [
+                "file://example.com%s",
+                "file://localhost:8080%s",
+                "file://www.google.com%s",
+                "file://1.1.1.1%s",
+                "file://2.2.2.2%s",
+                "file://192.168.43.1%s"
+            ]
+        ]
+
+        for response in responses:
+            self.assertEqual(type(response.error), ValueError)
+            self.assertEqual(response.status_code, requests.codes.forbidden)
 
         # localhost is ok, though
         with open(__file__, "rb") as f:

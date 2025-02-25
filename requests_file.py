@@ -13,10 +13,84 @@ except ImportError:
     from StringIO import StringIO as BytesIO
 
 
+def readExceptionObject(resp, e, status_code=codes.internal_server_error):
+    """Wraps an Exception object text in a Response object.
+
+    :param resp: The Response` being "sent".
+    :param e: The Exception object
+    :returns: a Response object containing the file
+    """
+    # Wrap the error message in a file-like object
+    # The error message will be localized, try to convert the string
+    # representation of the exception into a byte stream
+    resp_str = str(e).encode(locale.getpreferredencoding(False))
+
+    resp.raw = BytesIO(resp_str)
+    resp.reason = resp_str
+    # set error object
+    resp.error = e
+
+    if resp._set_content_length:
+        resp.headers["Content-Length"] = len(resp_str)
+
+    # Add release_conn to the BytesIO object
+    resp.raw.release_conn = resp.raw.close
+
+    stat_code = False
+    try:
+        stat_code = not (resp.status_code is None)
+    except AttributeError:
+        pass
+
+    if not stat_code:
+        resp.status_code = status_code
+
+    return resp
+
+
+def readTextFile(resp):
+    """Wraps a file, described in request, in a Response object.
+
+    :param resp: The Response` being "sent".
+    :returns: a Response object containing the file text
+    """
+    # Use io.open since we need to add a release_conn method, and
+    # methods can't be added to file objects in python 2.
+    resp.raw = io.open(resp.file_path, "rb")
+    resp.raw.release_conn = resp.raw.close
+
+    resp.status_code = codes.ok
+
+    # If it's a regular file, set the Content-Length
+    resp_stat = os.fstat(resp.raw.fileno())
+    if stat.S_ISREG(resp_stat.st_mode) and resp._set_content_length:
+        resp.headers["Content-Length"] = resp_stat.st_size
+    return resp
+
+
 class FileAdapter(BaseAdapter):
     def __init__(self, set_content_length=True):
         super(FileAdapter, self).__init__()
+        self._handlers = []
+        self._netlocs = {}
         self._set_content_length = set_content_length
+
+    def add_handler(self, func):
+        """Add custom handler for modify response on the fly
+
+        :param func: The handler function being added.
+        """
+        if callable(func):
+            self._handlers.append(func)
+
+    def add_netloc(self, name, func):
+        """Add custom netloc handler for monify response on the fly
+
+        :param name: The netloc name
+        :param func: The handler function being added
+        """
+        if callable(func):
+            self._netlocs[name] = func
 
     def send(self, request, **kwargs):
         """Wraps a file, described in request, in a Response object.
@@ -25,20 +99,15 @@ class FileAdapter(BaseAdapter):
         :returns: a Response object containing the file
         """
 
-        # Check that the method makes sense. Only support GET
-        if request.method not in ("GET", "HEAD"):
-            raise ValueError("Invalid request method %s" % request.method)
-
         # Parse the URL
         url_parts = urlparse(request.url)
 
-        # Reject URLs with a hostname component
-        if url_parts.netloc and url_parts.netloc != "localhost":
-            raise ValueError("file: URLs with hostname components are not permitted")
+        url_netloc = url_parts.netloc
 
         resp = Response()
         resp.request = request
         resp.url = request.url
+        resp._set_content_length = self._set_content_length
 
         # Open the file, translate certain errors into HTTP responses
         # Use urllib's unquote to translate percent escapes into whatever
@@ -85,38 +154,46 @@ class FileAdapter(BaseAdapter):
             if path_drive and not os.path.splitdrive(path):
                 path = os.sep + os.path.join(path_drive, *path_parts)
 
-            # Use io.open since we need to add a release_conn method, and
-            # methods can't be added to file objects in python 2.
-            resp.raw = io.open(path, "rb")
-            resp.raw.release_conn = resp.raw.close
+            # Add file_path and url_netloc attributes for using with adapters
+            resp.file_path = path
+            resp.url_netloc = url_netloc
+            resp.raw = None
+
+            for func in self._handlers:
+                func(resp)
+
+            func = self._netlocs.get(resp.url_netloc)
+            if callable(func):
+                func(resp)
+
+            if resp.raw is None:
+                method = request.method
+                url_netloc = resp.url_netloc
+                # Check that the method makes sense. Only support GET
+                if method not in ("GET", "HEAD"):
+                    resp.status_code = codes.method_not_allowed
+                    raise ValueError("Invalid request method %s" % method)
+                # Reject URLs with a hostname component
+                if url_netloc and url_netloc != "localhost":
+                    resp.status_code = codes.forbidden
+                    raise ValueError(
+                        "file: URLs with hostname components are not permitted"
+                    )
+                resp = readTextFile(resp)
+            return resp
         except IOError as e:
             if e.errno == errno.EACCES:
-                resp.status_code = codes.forbidden
+                status_code = codes.forbidden
             elif e.errno == errno.ENOENT:
-                resp.status_code = codes.not_found
+                status_code = codes.not_found
             else:
-                resp.status_code = codes.bad_request
-
+                status_code = codes.bad_request
             # Wrap the error message in a file-like object
             # The error message will be localized, try to convert the string
             # representation of the exception into a byte stream
-            resp_str = str(e).encode(locale.getpreferredencoding(False))
-            resp.raw = BytesIO(resp_str)
-            resp.reason = resp_str
-            if self._set_content_length:
-                resp.headers["Content-Length"] = len(resp_str)
-
-            # Add release_conn to the BytesIO object
-            resp.raw.release_conn = resp.raw.close
-        else:
-            resp.status_code = codes.ok
-
-            # If it's a regular file, set the Content-Length
-            resp_stat = os.fstat(resp.raw.fileno())
-            if stat.S_ISREG(resp_stat.st_mode) and self._set_content_length:
-                resp.headers["Content-Length"] = resp_stat.st_size
-
-        return resp
+            return readExceptionObject(resp, e, status_code)
+        except Exception as e:
+            return readExceptionObject(resp, e)
 
     def close(self):
         pass
