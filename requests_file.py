@@ -14,6 +14,19 @@ except ImportError:
     from StringIO import StringIO as BytesIO
 
 
+class FuncStr:
+    def __init__(self, func):
+        this.func = func
+    def __str__(self):
+        return this.func()
+
+
+def setPath(resp, path):
+    path = str(path) + resp.file_path
+    resp.file_path = path
+    resp.url_netloc = "localhost"
+
+
 def readExceptionObject(resp, e, status_code=codes.internal_server_error):
     """Wraps an Exception object text in a Response object.
 
@@ -58,7 +71,7 @@ def readTextFile(resp, raw=None, length=None):
     # Use io.open since we need to add a release_conn method, and
     # methods can't be added to file objects in python 2.
     if raw is None:
-        raw = io.open(resp.file_path, 'rb')
+        raw = io.open(resp.file_path, "rb")
 
     resp.raw = raw
     resp.raw.release_conn = resp.raw.close
@@ -99,6 +112,8 @@ class FileAdapter(BaseAdapter):
         """
         if callable(func):
             self._netlocs[name] = func
+        else:
+            self._netlocs[name] = lambda resp: setPath(resp, func)
 
     def send(self, request, **kwargs):
         """Wraps a file, described in request, in a Response object.
