@@ -183,11 +183,11 @@ class FileAdapter(BaseAdapter):
             resp.url_netloc = url_netloc or "localhost"
             resp.raw = None
 
-            for func in self._handlers:
-                func(resp)
-
             func = self._netlocs.get(resp.url_netloc)
             if callable(func):
+                func(resp)
+
+            for func in self._handlers:
                 func(resp)
 
             if resp.raw is None:
