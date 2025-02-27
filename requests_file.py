@@ -90,11 +90,13 @@ def readTextFile(resp, raw=None, length=None):
 
 
 class FileAdapter(BaseAdapter):
-    def __init__(self, set_content_length=True):
+    def __init__(self, set_content_length=True, netloc_paths = {}):
         super(FileAdapter, self).__init__()
         self._handlers = []
         self._netlocs = {}
         self._set_content_length = set_content_length
+        for key, value in netloc_paths.items():
+            self.add_netloc(key, value)
 
     def add_handler(self, func):
         """Add custom handler for modify response on the fly
