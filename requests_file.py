@@ -15,9 +15,10 @@ except ImportError:
 
 
 class FuncStr:
-    def __init__(self, func):
+    def __init__(this, func):
         this.func = func
-    def __str__(self):
+
+    def __str__(this):
         return this.func()
 
 
@@ -90,7 +91,7 @@ def readTextFile(resp, raw=None, length=None):
 
 
 class FileAdapter(BaseAdapter):
-    def __init__(self, set_content_length=True, netloc_paths = {}):
+    def __init__(self, set_content_length=True, netloc_paths={}):
         super(FileAdapter, self).__init__()
         self._handlers = []
         self._netlocs = {}

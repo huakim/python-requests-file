@@ -2,7 +2,7 @@ import unittest
 import requests
 from requests_file import FileAdapter
 
-import os, stat
+import os
 import tempfile
 import shutil
 import platform
@@ -101,7 +101,9 @@ class FileRequestTestCase(unittest.TestCase):
         response.close()
 
     def test_fetch_post(self):
-        response = self._session.post("file://%s" % self._pathToURL(os.path.abspath(__file__)))
+        response = self._session.post(
+            "file://%s" % self._pathToURL(os.path.abspath(__file__))
+        )
         # Make sure that non-GET methods are rejected
         self.assertTrue(isinstance(response.error, ValueError))
         self.assertEqual(response.status_code, requests.codes.method_not_allowed)
@@ -116,7 +118,7 @@ class FileRequestTestCase(unittest.TestCase):
                 "file://www.google.com%s",
                 "file://1.1.1.1%s",
                 "file://2.2.2.2%s",
-                "file://192.168.43.1%s"
+                "file://192.168.43.1%s",
             ]
         ]
 
@@ -160,12 +162,12 @@ class FileRequestTestCase(unittest.TestCase):
                 response.close()
 
             # percent-encoded directory separators should be rejected
-            with open(os.path.join(tmpdir, "badname"), "w+b") as bad_file:
-                response = self._session.get(
-                    "file://%s%%%Xbadname" % (self._pathToURL(tmpdir), ord(os.sep))
-                )
-                self.assertEqual(response.status_code, requests.codes.not_found)
-                response.close()
+           # a= open(os.path.join(tmpdir, "badname"), "w+b") as bad_file:
+            response = self._session.get(
+                "file://%s%%%Xbadname" % (self._pathToURL(tmpdir), ord(os.sep))
+            )
+            self.assertEqual(response.status_code, requests.codes.not_found)
+            response.close()
 
         finally:
             shutil.rmtree(tmpdir)
